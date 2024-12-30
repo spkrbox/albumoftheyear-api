@@ -1,0 +1,7 @@
+beautifulsoup4==4.12.3
+cloudscraper==1.2.71
+fastapi==0.115.6
+httpx==0.28.1
+pydantic==2.10.4
+slowapi==0.1.9
+uvicorn==0.34.0
