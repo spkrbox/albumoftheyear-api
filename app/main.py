@@ -42,6 +42,20 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+@app.get("/")
+async def home():
+    return {
+        "endpoints": {
+            "album": {
+                "path": "/album/",
+                "params": {"artist": "string", "album": "string"},
+                "description": "Get detailed album information",
+            },
+            "metrics": {"path": "/metrics", "description": "Get API usage metrics"},
+        },
+    }
+
+
 @app.get("/album/", response_model=Album)
 @limiter.limit("30/minute")
 async def get_album(request: Request, artist: str, album: str):
