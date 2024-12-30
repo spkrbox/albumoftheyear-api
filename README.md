@@ -1,4 +1,6 @@
-A FastAPI API that scrapes album information from albumoftheyear.org.
+A FastAPI API that scrapes information from albumoftheyear.org.
+
+[![Live Instance](https://img.shields.io/badge/Live_Instance-aoty.jawad.sh-blue)](https://aoty.jawad.sh/)
 
 ## Table of Contents
 
