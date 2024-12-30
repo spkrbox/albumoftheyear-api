@@ -1,5 +1,3 @@
-# Album Scraper API
-
 A FastAPI API that scrapes album information from albumoftheyear.org.
 
 ## Table of Contents
@@ -50,7 +48,7 @@ Retrieves detailed information about a specific album.
 GET /metrics
 ```
 
-Returns API usage statistics and performance metrics.
+Returns API metrics.
 
 ## Example Responses
 
@@ -73,7 +71,8 @@ GET /album/?artist=radiohead&album=ok+computer
       "length": "4:47",
       "rating": 94,
       "featured_artists": []
-    }
+    },
+    ...
   ],
   "critic_reviews": [
     {
@@ -81,7 +80,8 @@ GET /album/?artist=radiohead&album=ok+computer
       "publication": "Pitchfork",
       "rating": 100,
       "text": "The record is brimming with genuine emotion, beautiful and complex imagery and music, and lyrics that are at ..."
-    }
+    },
+    ...
   ],
   "popular_reviews": [
     {
@@ -89,7 +89,8 @@ GET /album/?artist=radiohead&album=ok+computer
       "rating": 100,
       "text": "We are living what this album feared right now.",
       "likes": 0
-    }
+    },
+    ...
   ],
   "is_must_hear": true
 }
