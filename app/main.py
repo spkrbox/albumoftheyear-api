@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -19,7 +19,19 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="AOTY Scraper", lifespan=lifespan)
+app = FastAPI(
+    title="AOTY API",
+    description="An API that scrapes album and user information from albumoftheyear.org.",
+    version="1.0.0",
+    contact={
+        "name": "spkrbox",
+        "url": "https://github.com/spkrbox/albumoftheyear-api",
+    },
+    license_info={
+        "name": "MIT",
+    },
+    lifespan=lifespan,
+)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 
@@ -61,18 +73,31 @@ async def home():
     }
 
 
-@app.get("/album/", response_model=Album)
+@app.get(
+    "/album/",
+    response_model=Album,
+    summary="Get Album Details",
+    response_description="Detailed album information including tracks, reviews and ratings",
+    responses={
+        404: {"description": "Album not found"},
+        503: {"description": "Error accessing album site"},
+    },
+)
 @limiter.limit("30/minute")
-async def get_album(request: Request, artist: str, album: str):
+async def get_album(
+    request: Request,
+    artist: str = Query(..., description="Name of the artist", example="Radiohead"),
+    album: str = Query(..., description="Name of the album", example="OK Computer"),
+):
     """
-    Search for and scrape album information from albumoftheyear.org
+    Fetches detailed information about an album from albumoftheyear.org
 
-    Parameters:
-    - artist: Name of the artist
-    - album: Name of the album
+    The endpoint will:
+    - Search for the album
+    - Scrape track listings, user score, and reviews
+    - Return cached results if available
 
-    Returns:
-    - Album object containing all scraped information
+    Rate limited to 30 requests per minute per IP address.
     """
     start_time = time()
     try:
@@ -101,16 +126,70 @@ async def get_album(request: Request, artist: str, album: str):
         metrics.record_response_time(time() - start_time)
 
 
-@app.get("/metrics")
+@app.get(
+    "/metrics",
+    summary="API Usage Metrics",
+    response_description="Current API usage statistics",
+    responses={
+        200: {
+            "description": "API metrics including request counts and response times",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "total_requests": 7,
+                        "cache_hits": 5,
+                        "cache_misses": 2,
+                        "errors": 0,
+                        "avg_response_time": 0.158826896122524,
+                        "last_reset": "2024-12-30T05:17:38.585115",
+                    }
+                }
+            },
+        }
+    },
+)
 async def get_metrics():
-    """Get API usage metrics."""
+    """
+    Returns current API usage metrics including:
+    - Total request count
+    - Cache hit/miss statistics
+    - Error count
+    - Average response time
+    - Last metrics reset timestamp
+    """
     return metrics.get_metrics()
 
 
-@app.get("/user/", response_model=UserProfile)
+@app.get(
+    "/user/",
+    response_model=UserProfile,
+    summary="Get User Profile",
+    response_description="User profile information including reviews and stats",
+    responses={
+        404: {"description": "User not found"},
+        503: {"description": "Error accessing user profile"},
+    },
+)
 @limiter.limit("30/minute")
-async def get_user(request: Request, username: str):
-    """Get user profile information"""
+async def get_user(
+    request: Request,
+    username: str = Query(
+        ..., description="Username on albumoftheyear.org", example="fantano"
+    ),
+):
+    """
+    Fetches a user's profile information from albumoftheyear.org
+
+    The endpoint will return:
+    - Basic profile information (location, join date, etc.)
+    - User statistics (ratings, reviews, followers)
+    - Recent reviews
+    - Favorite albums
+    - Rating distribution
+    - Social media links
+
+    Rate limited to 30 requests per minute per IP address.
+    """
     start_time = time()
     try:
         cache_key = f"user_{username}"
