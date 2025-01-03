@@ -4,7 +4,14 @@ import asyncio
 
 from bs4 import BeautifulSoup, Tag
 from typing import Optional, Final, Dict
-from ..models import Album, Track, CriticReview, UserReview, UserProfile
+from ..models import (
+    Album,
+    Track,
+    CriticReview,
+    AlbumUserReview,
+    ProfileUserReview,
+    UserProfile,
+)
 from fastapi import HTTPException
 
 BASE_URL: Final = "https://www.albumoftheyear.org"
@@ -108,31 +115,34 @@ def parse_critic_reviews(soup: BeautifulSoup) -> list[CriticReview]:
     return reviews
 
 
-def parse_user_reviews(soup: BeautifulSoup, section_id: str) -> list[UserReview]:
+def parse_user_reviews(soup: BeautifulSoup, section_id: str) -> list[AlbumUserReview]:
     """Extract user reviews from the album page."""
     reviews = []
     for review in soup.select(f"#{section_id} .albumReviewRow"):
-        author = review.select_one(".userReviewName a").text
-        rating = None
+        try:
+            author = review.select_one(".userReviewName a").text
+            rating = None
 
-        if rating_elem := review.select_one(".rating"):
-            if rating_elem.text != "NR":
-                rating = int(rating_elem.text)
+            if rating_elem := review.select_one(".rating"):
+                if rating_elem.text != "NR":
+                    rating = int(rating_elem.text)
 
-        text = review.select_one(".albumReviewText").text.strip()
-        likes = 0
+            text = review.select_one(".albumReviewText").text.strip()
+            likes = 0
 
-        if likes_elem := review.select_one(".review_likes a"):
-            likes = int(likes_elem.text)
+            if likes_elem := review.select_one(".review_likes a"):
+                likes = int(likes_elem.text)
 
-        reviews.append(
-            UserReview(
-                author=author,
-                rating=rating,
-                text=text,
-                likes=likes,
+            reviews.append(
+                AlbumUserReview(
+                    author=author,
+                    rating=rating,
+                    text=text,
+                    likes=likes,
+                )
             )
-        )
+        except (AttributeError, ValueError):
+            continue
 
     return reviews
 
@@ -226,7 +236,7 @@ def extract_rating_distribution(soup: BeautifulSoup) -> Dict[str, int]:
     return dist
 
 
-def extract_review(review: Tag) -> Optional[UserReview]:
+def extract_review(review: Tag) -> Optional[ProfileUserReview]:
     """Extract a single review from review element"""
     try:
         album_title = review.select_one(".albumTitle")
@@ -237,7 +247,7 @@ def extract_review(review: Tag) -> Optional[UserReview]:
         timestamp = review.select_one(".actionContainer[title]")
 
         if all([album_title, album_artist, rating, review_text]):
-            return UserReview(
+            return ProfileUserReview(
                 album_title=album_title.text.strip(),
                 album_artist=album_artist.text.strip(),
                 rating=parse_number(rating.text.strip()),
