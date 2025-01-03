@@ -52,6 +52,11 @@ async def home():
                 "description": "Get detailed album information",
             },
             "metrics": {"path": "/metrics", "description": "Get API usage metrics"},
+            "user": {
+                "path": "/user/",
+                "params": {"username": "string"},
+                "description": "Get user profile information",
+            },
         },
     }
 
