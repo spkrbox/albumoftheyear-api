@@ -2,9 +2,9 @@ import cloudscraper
 import urllib.parse
 import asyncio
 
-from bs4 import BeautifulSoup
-from typing import Optional, Final
-from ..models import Album, Track, CriticReview, UserReview
+from bs4 import BeautifulSoup, Tag
+from typing import Optional, Final, Dict
+from ..models import Album, Track, CriticReview, UserReview, UserProfile
 from fastapi import HTTPException
 
 BASE_URL: Final = "https://www.albumoftheyear.org"
@@ -15,6 +15,13 @@ HEADERS: Final = {
 }
 
 scraper = cloudscraper.create_scraper()
+
+
+def parse_number(text: str | int) -> int:
+    """Convert string numbers with commas to integers"""
+    if isinstance(text, int):
+        return text
+    return int(str(text).replace(",", ""))
 
 
 async def get_album_url(artist: str, album: str) -> Optional[tuple[str, str, str]]:
@@ -184,4 +191,150 @@ async def scrape_album(url: str, artist: str, title: str) -> Album:
     except Exception as e:
         raise HTTPException(
             status_code=503, detail=f"Error accessing album page: {str(e)}"
+        )
+
+
+def extract_basic_info(
+    soup: BeautifulSoup,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Extract basic user profile information"""
+    about = soup.select_one(".aboutUser")
+    about_text = about.text.strip() if about else None
+
+    location = soup.select_one(".profileLocation")
+    location_text = location.text.strip() if location else None
+
+    member_since = None
+    for div in soup.select(".rightBox div"):
+        if div.text.startswith("Member since"):
+            member_since = div.text.replace("Member since ", "").strip()
+            break
+
+    return about_text, location_text, member_since
+
+
+def extract_rating_distribution(soup: BeautifulSoup) -> Dict[str, int]:
+    """Extract rating distribution data"""
+    dist = {}
+    for row in soup.select(".dist .distRow"):
+        label = row.select_one(".distLabel")
+        count = row.select_one(".distCount")
+        if label and count:
+            rating_range = label.text.strip()
+            count_text = count.text.strip()
+            dist[rating_range] = parse_number(count_text)
+    return dist
+
+
+def extract_review(review: Tag) -> Optional[UserReview]:
+    """Extract a single review from review element"""
+    try:
+        album_title = review.select_one(".albumTitle")
+        album_artist = review.select_one(".artistTitle")
+        rating = review.select_one(".rating")
+        review_text = review.select_one(".albumReviewText")
+        likes = review.select_one(".review_likes")
+        timestamp = review.select_one(".actionContainer[title]")
+
+        if all([album_title, album_artist, rating, review_text]):
+            return UserReview(
+                album_title=album_title.text.strip(),
+                album_artist=album_artist.text.strip(),
+                rating=parse_number(rating.text.strip()),
+                review_text=review_text.text.strip(),
+                likes=parse_number(likes.text.strip()) if likes else 0,
+                timestamp=timestamp.text.strip() if timestamp else "",
+            )
+    except (AttributeError, ValueError):
+        return None
+    return None
+
+
+def extract_social_links(soup: BeautifulSoup) -> Dict[str, str]:
+    """Extract social media links"""
+    socials = {}
+    for link in soup.select(".profileLink"):
+        try:
+            icon = link.select_one(".logo i")
+            url = link.select_one("a")
+            if icon and url:
+                platform = icon["class"][1].replace("fa-", "")
+                socials[platform] = url["href"]
+        except (IndexError, KeyError):
+            continue
+    return socials
+
+
+def extract_stats(soup: BeautifulSoup) -> Dict[str, int]:
+    """Extract user statistics"""
+    stats = {}
+    stat_containers = soup.select(".profileStatContainer")
+    if len(stat_containers) >= 4:
+        for idx, key in enumerate(["ratings", "reviews", "lists", "followers"]):
+            stat = stat_containers[idx].select_one(".profileStat")
+            stats[key] = parse_number(stat.text.strip()) if stat else 0
+    return stats
+
+
+async def get_user_profile(username: str) -> Optional[UserProfile]:
+    """
+    Scrape user profile information from albumoftheyear.org
+
+    Args:
+        username: The username to fetch profile for
+
+    Returns:
+        UserProfile object containing the user's information
+
+    Raises:
+        HTTPException: If user doesn't exist or there's an error accessing the profile
+    """
+    url = f"{BASE_URL}/user/{username}/"
+
+    try:
+        response_text = await asyncio.to_thread(
+            lambda: scraper.get(url, headers=HEADERS).text
+        )
+        soup = BeautifulSoup(response_text, "html.parser")
+
+        # check if user exists by looking for profile elements
+        if not soup.select_one(".profileHeadLeft"):
+            raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+
+        about_text, location_text, member_since = extract_basic_info(soup)
+
+        rating_dist = extract_rating_distribution(soup)
+        reviews = [
+            r
+            for r in (
+                extract_review(review) for review in soup.select(".albumReviewRow")[:5]
+            )
+            if r
+        ]
+        socials = extract_social_links(soup)
+        stats = extract_stats(soup)
+
+        favorite_albums = [
+            title.text.strip()
+            for album in soup.select("#favAlbumsBlock .albumBlock")
+            if (title := album.select_one(".albumTitle"))
+        ]
+
+        return UserProfile(
+            username=username,
+            location=location_text,
+            about=about_text,
+            member_since=member_since,
+            stats=stats,
+            rating_distribution=rating_dist,
+            favorite_albums=favorite_albums,
+            recent_reviews=reviews,
+            social_links=socials,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=503, detail=f"Error accessing user profile: {str(e)}"
         )

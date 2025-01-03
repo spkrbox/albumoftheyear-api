@@ -44,6 +44,14 @@ GET /album/?artist={artist}&album={album}
 
 Retrieves detailed information about a specific album.
 
+### Get User Profile
+
+```http
+GET /user/?username={username}
+```
+
+Retrieves detailed information about a user profile.
+
 ### View Metrics
 
 ```http
@@ -74,7 +82,7 @@ GET /album/?artist=radiohead&album=ok+computer
       "rating": 94,
       "featured_artists": []
     },
-    ...
+    "..."
   ],
   "critic_reviews": [
     {
@@ -83,7 +91,7 @@ GET /album/?artist=radiohead&album=ok+computer
       "rating": 100,
       "text": "The record is brimming with genuine emotion, beautiful and complex imagery and music, and lyrics that are at ..."
     },
-    ...
+    "..."
   ],
   "popular_reviews": [
     {
@@ -92,9 +100,61 @@ GET /album/?artist=radiohead&album=ok+computer
       "text": "We are living what this album feared right now.",
       "likes": 0
     },
-    ...
+    "..."
   ],
   "is_must_hear": true
+}
+```
+
+### User Profile Response
+
+```http
+GET /user/?username=fantano
+```
+
+```json
+{
+  "username": "andre...",
+  "location": "Italy",
+  "about": "I simply like good music, the genre doesn't matter.",
+  "member_since": "August 11, 2017",
+  "stats": {
+    "ratings": 2613,
+    "reviews": 11,
+    "lists": 0,
+    "followers": 2845
+  },
+  "favorite_albums": [
+    "OK Computer",
+    "Revolver",
+    "The Velvet Underground & Nico",
+    "Disintegration",
+    "The Rise and Fall of Ziggy Stardust and the Spiders from Mars"
+  ],
+  "recent_reviews": [
+    {
+      "album_title": "Is This It",
+      "album_artist": "The Strokes",
+      "rating": 91,
+      "review_text": "I just realized that I have 2,500 followers in AOTY! Tis is such an honor that I ...",
+      "likes": 83,
+      "timestamp": "1y"
+    },
+    "..."
+  ],
+  "social_links": {
+    "link": "https://arock.rocks/",
+    "twitter": "http://twitter.com/..."
+  },
+  "rating_distribution": {
+    "100": 16,
+    "90-99": 232,
+    "80-89": 1019,
+    "70-79": 1085,
+    "60-69": 219,
+    "50-59": 26,
+    "40-49": 12
+  }
 }
 ```
 

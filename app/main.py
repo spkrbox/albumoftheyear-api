@@ -9,9 +9,9 @@ from slowapi.errors import RateLimitExceeded
 from time import time
 from contextlib import asynccontextmanager
 from .utils.cache import cache
-from .models import Album
+from .models import Album, UserProfile
 from .utils.metrics import metrics
-from .utils.scraper import get_album_url, scrape_album
+from .utils.scraper import get_album_url, scrape_album, get_user_profile
 
 
 @asynccontextmanager
@@ -100,3 +100,28 @@ async def get_album(request: Request, artist: str, album: str):
 async def get_metrics():
     """Get API usage metrics."""
     return metrics.get_metrics()
+
+
+@app.get("/user/", response_model=UserProfile)
+@limiter.limit("30/minute")
+async def get_user(request: Request, username: str):
+    """Get user profile information"""
+    start_time = time()
+    try:
+        cache_key = f"user_{username}"
+        if cached_result := cache.get(cache_key):
+            metrics.record_request(cache_hit=True)
+            return cached_result
+
+        metrics.record_request(cache_hit=False)
+        if user_data := await get_user_profile(username):
+            cache.set(cache_key, user_data)
+            return user_data
+
+        raise HTTPException(status_code=404, detail="User not found")
+
+    except:
+        metrics.record_error()
+        raise
+    finally:
+        metrics.record_response_time(time() - start_time)

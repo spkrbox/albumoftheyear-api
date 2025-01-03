@@ -18,10 +18,12 @@ class CriticReview(BaseModel):
 
 
 class UserReview(BaseModel):
-    author: str
-    rating: Optional[int]
-    text: str
+    album_title: str
+    album_artist: str
+    rating: int
+    review_text: str
     likes: int
+    timestamp: str
 
 
 class Album(BaseModel):
@@ -33,3 +35,15 @@ class Album(BaseModel):
     critic_reviews: List[CriticReview]
     popular_reviews: List[UserReview]
     is_must_hear: bool
+
+
+class UserProfile(BaseModel):
+    username: str
+    location: Optional[str] = None
+    about: Optional[str] = None
+    member_since: Optional[str] = None
+    stats: dict
+    favorite_albums: List[str]
+    recent_reviews: List[UserReview]
+    social_links: Optional[dict] = None
+    rating_distribution: dict
