@@ -1,6 +1,7 @@
+import threading
+
 from dataclasses import dataclass
 from datetime import datetime
-import threading
 from typing import Dict
 
 
