@@ -33,6 +33,11 @@ class ProfileUserReview(BaseModel):
     timestamp: str
 
 
+class BuyLink(BaseModel):
+    platform: str
+    url: str
+
+
 class Album(BaseModel):
     title: str
     artist: str
@@ -42,6 +47,7 @@ class Album(BaseModel):
     critic_reviews: List[CriticReview]
     popular_reviews: List[AlbumUserReview]
     is_must_hear: bool
+    buy_links: List[BuyLink] = []
 
 
 class UserProfile(BaseModel):

@@ -1,5 +1,3 @@
-import asyncio
-
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -8,10 +6,21 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from time import time
 from contextlib import asynccontextmanager
-from .utils.cache import cache
-from .models import Album, UserProfile
 from .utils.metrics import metrics
-from .utils.scraper import get_album_url, scrape_album, get_user_profile
+from .utils.redis import (
+    get_cache,
+    set_cache,
+    ALBUM_TTL,
+    SIMILAR_TTL,
+    USER_TTL,
+)
+from .models import Album, UserProfile
+from .utils.scraper import (
+    get_album_url,
+    scrape_album,
+    get_user_profile,
+    get_similar_albums,
+)
 
 
 @asynccontextmanager
@@ -20,9 +29,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AOTY API",
-    description="An API that scrapes album and user information from albumoftheyear.org.",
-    version="1.0.0",
+    title="Album of the Year API",
+    description="An unofficial API for albumoftheyear.org.",
     contact={
         "name": "spkrbox",
         "url": "https://github.com/spkrbox/albumoftheyear-api",
@@ -54,30 +62,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-@app.get("/")
-async def home():
-    return {
-        "endpoints": {
-            "album": {
-                "path": "/album/",
-                "params": {"artist": "string", "album": "string"},
-                "description": "Get detailed album information",
-            },
-            "metrics": {"path": "/metrics", "description": "Get API usage metrics"},
-            "user": {
-                "path": "/user/",
-                "params": {"username": "string"},
-                "description": "Get user profile information",
-            },
-        },
-    }
-
-
 @app.get(
     "/album/",
     response_model=Album,
     summary="Get Album Details",
-    response_description="Detailed album information including tracks, reviews and ratings",
+    description="Retrieve information about an album.",
+    response_description="Detailed album information.",
     responses={
         404: {"description": "Album not found"},
         503: {"description": "Error accessing album site"},
@@ -89,46 +79,80 @@ async def get_album(
     artist: str = Query(..., description="Name of the artist", example="Radiohead"),
     album: str = Query(..., description="Name of the album", example="OK Computer"),
 ):
-    """
-    Fetches detailed information about an album from albumoftheyear.org
-
-    The endpoint will:
-    - Search for the album
-    - Scrape track listings, user score, and reviews
-    - Return cached results if available
-
-    Rate limited to 30 requests per minute per IP address.
-    """
     start_time = time()
     try:
-        cache_key = f"{artist}:{album}"
-        if cached_result := cache.get(cache_key):
+        cache_key = f"album:{artist}:{album}"
+        if cached_result := await get_cache(cache_key):
             metrics.record_request(cache_hit=True)
-            return cached_result
+            return Album(**cached_result)
 
         metrics.record_request(cache_hit=False)
         result = await get_album_url(artist, album)
         if not result:
             raise HTTPException(status_code=404, detail="Album not found")
 
-        album_url, artist_name, album_title = result
+        url, artist, title = result
+        album_data = await scrape_album(url, artist, title)
 
-        async with asyncio.Semaphore(5):
-            album_data = await scrape_album(album_url, artist_name, album_title)
-
-        cache.set(cache_key, album_data)
+        await set_cache(cache_key, album_data.dict(), ALBUM_TTL)
+        metrics.record_response_time(time() - start_time)
         return album_data
 
-    except:
-        metrics.record_error()
+    except HTTPException:
         raise
-    finally:
+    except Exception as e:
+        metrics.record_error()
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.get(
+    "/album/similar/",
+    response_model=list[Album],
+    summary="Get Similar Albums",
+    description="Find albums similar to a specified album.",
+    response_description="List of albums similar to the specified album",
+    responses={
+        404: {"description": "Album not found"},
+        503: {"description": "Error accessing album site"},
+    },
+)
+@limiter.limit("30/minute")
+async def get_similar_albums_endpoint(
+    request: Request,
+    artist: str = Query(..., description="Name of the artist", example="Radiohead"),
+    album: str = Query(..., description="Name of the album", example="OK Computer"),
+):
+    start_time = time()
+    try:
+        cache_key = f"similar:{artist}:{album}"
+        if cached_result := await get_cache(cache_key):
+            metrics.record_request(cache_hit=True)
+            return [Album(**album_data) for album_data in cached_result]
+
+        metrics.record_request(cache_hit=False)
+        result = await get_album_url(artist, album)
+        if not result:
+            raise HTTPException(status_code=404, detail="Album not found")
+
+        url, _, _ = result
+        similar_albums = await get_similar_albums(url)
+
+        # Cache the list of albums as dictionaries
+        await set_cache(cache_key, [album.dict() for album in similar_albums], SIMILAR_TTL)
         metrics.record_response_time(time() - start_time)
+        return similar_albums
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        metrics.record_error()
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @app.get(
     "/metrics",
     summary="API Usage Metrics",
+    description="Get current API usage statistics",
     response_description="Current API usage statistics",
     responses={
         200: {
@@ -149,14 +173,6 @@ async def get_album(
     },
 )
 async def get_metrics():
-    """
-    Returns current API usage metrics including:
-    - Total request count
-    - Cache hit/miss statistics
-    - Error count
-    - Average response time
-    - Last metrics reset timestamp
-    """
     return metrics.get_metrics()
 
 
@@ -164,7 +180,8 @@ async def get_metrics():
     "/user/",
     response_model=UserProfile,
     summary="Get User Profile",
-    response_description="User profile information including reviews and stats",
+    description="Retrieve a user's profile information.",
+    response_description="User profile information",
     responses={
         404: {"description": "User not found"},
         503: {"description": "Error accessing user profile"},
@@ -174,38 +191,25 @@ async def get_metrics():
 async def get_user(
     request: Request,
     username: str = Query(
-        ..., description="Username on albumoftheyear.org", example="fantano"
+        ..., description="Username on albumoftheyear.org", example="evrynoiseatonce"
     ),
 ):
-    """
-    Fetches a user's profile information from albumoftheyear.org
-
-    The endpoint will return:
-    - Basic profile information (location, join date, etc.)
-    - User statistics (ratings, reviews, followers)
-    - Recent reviews
-    - Favorite albums
-    - Rating distribution
-    - Social media links
-
-    Rate limited to 30 requests per minute per IP address.
-    """
     start_time = time()
     try:
-        cache_key = f"user_{username}"
-        if cached_result := cache.get(cache_key):
+        cache_key = f"user:{username}"
+        if cached_result := await get_cache(cache_key):
             metrics.record_request(cache_hit=True)
-            return cached_result
+            return UserProfile(**cached_result)
 
         metrics.record_request(cache_hit=False)
-        if user_data := await get_user_profile(username):
-            cache.set(cache_key, user_data)
-            return user_data
+        user_profile = await get_user_profile(username)
 
-        raise HTTPException(status_code=404, detail="User not found")
-
-    except:
-        metrics.record_error()
-        raise
-    finally:
+        await set_cache(cache_key, user_profile.dict(), USER_TTL)
         metrics.record_response_time(time() - start_time)
+        return user_profile
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        metrics.record_error()
+        raise HTTPException(status_code=503, detail=str(e))

@@ -11,6 +11,7 @@ from ..models import (
     AlbumUserReview,
     ProfileUserReview,
     UserProfile,
+    BuyLink,
 )
 from fastapi import HTTPException
 
@@ -147,9 +148,21 @@ def parse_user_reviews(soup: BeautifulSoup, section_id: str) -> list[AlbumUserRe
     return reviews
 
 
+def parse_buy_links(soup: BeautifulSoup) -> list[BuyLink]:
+    """Extract buy links from the album page."""
+    buy_links = []
+    if buy_buttons := soup.select_one(".buyButtons"):
+        for link in buy_buttons.select("a"):
+            platform = link.get("title", "").strip()
+            url = link.get("href", "").strip()
+            if platform and url:
+                buy_links.append(BuyLink(platform=platform, url=url))
+    return buy_links
+
+
 async def scrape_album(url: str, artist: str, title: str) -> Album:
     """
-    Scrape detailed album information from albumoftheyear.org.
+    Scrape album information from albumoftheyear.org.
     """
     try:
         response_text = await asyncio.to_thread(
@@ -179,12 +192,14 @@ async def scrape_album(url: str, artist: str, title: str) -> Album:
         popular_reviews_task = asyncio.create_task(
             asyncio.to_thread(parse_user_reviews, soup, "users")
         )
+        buy_links_task = asyncio.create_task(asyncio.to_thread(parse_buy_links, soup))
 
         # wait for all parsing tasks to complete
-        tracks, critic_reviews, popular_reviews = await asyncio.gather(
+        tracks, critic_reviews, popular_reviews, buy_links = await asyncio.gather(
             tracks_task,
             critic_reviews_task,
             popular_reviews_task,
+            buy_links_task,
         )
 
         return Album(
@@ -196,11 +211,51 @@ async def scrape_album(url: str, artist: str, title: str) -> Album:
             critic_reviews=critic_reviews,
             popular_reviews=popular_reviews,
             is_must_hear=bool(soup.select_one(".mustHearButton")),
+            buy_links=buy_links,
         )
 
     except Exception as e:
         raise HTTPException(
-            status_code=503, detail=f"Error accessing album page: {str(e)}"
+            status_code=503, detail=f"Error accessing album site: {str(e)}"
+        )
+
+
+async def get_similar_albums(url: str) -> list[Album]:
+    """
+    Get similar albums for a given album URL.
+    """
+    try:
+        if not url.endswith("/"):
+            url += "/"
+        similar_url = f"{url}similar/"
+        print(f"\nFetching similar albums from: {similar_url}")
+
+        response_text = await asyncio.to_thread(
+            lambda: scraper.get(similar_url, headers=HEADERS).text
+        )
+
+        soup = BeautifulSoup(response_text, "html.parser")
+        similar_albums = []
+
+        for album_block in soup.select(".albumBlock"):
+            try:
+                if album_link := album_block.select_one(".image a"):
+                    album_url = f"{BASE_URL}{album_link['href']}"
+                    artist = album_block.select_one(".artistTitle").text.strip()
+                    title = album_block.select_one(".albumTitle").text.strip()
+
+                    album = await scrape_album(album_url, artist, title)
+                    similar_albums.append(album)
+            except Exception as e:
+                print(f"Error processing album: {str(e)}")
+                continue
+
+        return similar_albums
+
+    except Exception as e:
+        print(f"Error in get_similar_albums: {str(e)}")
+        raise HTTPException(
+            status_code=503, detail=f"Error accessing similar albums page: {str(e)}"
         )
 
 
