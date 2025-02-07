@@ -1,8 +1,5 @@
 A FastAPI API that scrapes information from albumoftheyear.org.
 
-[![Live Instance](https://img.shields.io/badge/Live_Instance-aoty.jawad.sh-blue)](https://aoty.jawad.sh/)
-[![Swagger Docs](https://img.shields.io/badge/Swagger_Docs-aoty.jawad.sh/docs-blue)](https://aoty.jawad.sh/docs)
-
 ## Installation
 
 1. Create a virtual environment:
